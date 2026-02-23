@@ -1,5 +1,5 @@
 from extractTorrentData import ExtractTorrentData
-
+from bencoding import encode, decode
 import requests
 import urllib.parse
 import hashlib
@@ -7,33 +7,53 @@ import socket
 import struct
 import os
 
-# ---- Values you must already have ----
-announce_url, info = ExtractTorrentData()
-# announce_url = "http://tracker.example.com:6969/announce"
-# info_hash = b'\x12\x34\x56...'   # 20 byte SHA1 digest (raw bytes!)
-# file_length = 300224677          # from torrent info dictionary
+filePath = r"C:\Users\Lenovo\Downloads\Fedora-Budgie-Live-x86_64-43.torrent"
 
-# ---- Generate peer_id (20 bytes total) ----
+def get_info_hash(data):
+    encoded_info = encode(data)
+    return hashlib.sha1(encoded_info).digest()
+
+def get_size(info):
+    if b'length' in info:  #in case of single file
+        return info[b'length']
+    else:                  #in case of multiple files
+        return sum(file[b'length'] for file in info[b'files'])
+
+def parse_peers(peer_bytes):
+    peers = []
+    for i in range(0, len(peer_bytes), 6):
+        ip = socket.inet_ntoa(peer_bytes[i:i+4])
+        port = struct.unpack(">H", peer_bytes[i+4:i+6])[0]
+        peers.append((ip, port))
+    return peers
+
+
+announce_url, info = ExtractTorrentData(filePath)
+
 peer_id = b'-CC0101-' + os.urandom(12)
 
-if b'length' in info:  # single file
-    left = info[b'length']
-else:  # multiple files
-    left = sum(f[b'length'] for f in info[b'files'])
-
-# print(left)
-print(info)
-
+info_hash = get_info_hash(info)
+left = get_size(info)
+print(left)
+print(announce_url)
 params = {
-    'info_hash': info,
+    'info_hash': info_hash,
     'peer_id': peer_id,
     'port': 6881,
     'uploaded': 0,
     'downloaded': 0,
-    'left': 0,
+    'left': left,
     'compact': 1
 }
 
-# response = requests.get(announce_url, params=params)
+response = requests.get(announce_url, params=params)
 
-# print("Status:", response.status_code)
+print("Status:", response.status_code)
+print(response.url)
+tracker_response = decode(response.content)
+print(tracker_response)
+
+
+peers = parse_peers(tracker_response[b'peers'])
+for i, (ip, port) in enumerate(peers):
+    print(f"Peer {i} is ip: {ip} port: {port}")
