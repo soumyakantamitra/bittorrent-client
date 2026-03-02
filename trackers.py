@@ -34,8 +34,6 @@ peer_id = b'-CC0101-' + os.urandom(12)
 
 info_hash = get_info_hash(info)
 left = get_size(info)
-print(left)
-print(announce_url)
 params = {
     'info_hash': info_hash,
     'peer_id': peer_id,
@@ -48,12 +46,16 @@ params = {
 
 response = requests.get(announce_url, params=params)
 
-print("Status:", response.status_code)
-print(response.url)
 tracker_response = decode(response.content)
-print(tracker_response)
-
 
 peers = parse_peers(tracker_response[b'peers'])
-for i, (ip, port) in enumerate(peers):
-    print(f"Peer {i} is ip: {ip} port: {port}")
+
+if __name__ == "__main__":
+    print(left)
+    print(announce_url)
+    print("Status:", response.status_code, response.reason)
+    print(response.url)
+    print(tracker_response)
+    print("Got", len(peers), "Peers")
+    for i, (ip, port) in enumerate(peers):
+        print(f"Peer {i} is ip: {ip} port: {port}")
