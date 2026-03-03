@@ -4,7 +4,7 @@ from pathlib import Path
 # print(decode("i20e"))
 
 
-def ExtractTorrentData(filePath = r"C:\Users\Lenovo\Downloads\tears-of-steel.torrent"):
+def ExtractTorrentData(filePath):
   filePathObj = Path(filePath)
   with filePathObj.open(mode='rb') as f:
       torrent_data = decode(f.read())
