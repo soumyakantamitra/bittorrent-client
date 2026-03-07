@@ -1,10 +1,19 @@
-from extractTorrentData import ExtractTorrentData
 from bencoding import encode, decode
+from pathlib import Path
 import requests
 import hashlib
 import socket
 import struct
 import os
+
+def extractTorrentData(filePath):
+  filePathObj = Path(filePath)
+  with filePathObj.open(mode='rb') as f:
+      torrentData = decode(f.read())
+  announceData = torrentData[b'announce']
+  infoData = torrentData[b'info']
+  
+  return announceData, infoData
 
 def getInfoHash(data):
     encodedInfo = encode(data)
@@ -25,7 +34,7 @@ def parsePeers(peerBytes):
     return peers
 
 def getHandshakeData(filePath):
-    announceUrl, info = ExtractTorrentData(filePath)
+    announceUrl, info = extractTorrentData(filePath)
     peerId = b'-CC0101-' + os.urandom(12)
 
     infoHash = getInfoHash(info)
