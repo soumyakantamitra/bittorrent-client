@@ -7,13 +7,14 @@ import struct
 import os
 
 def extractTorrentData(filePath):
-  filePathObj = Path(filePath)
-  with filePathObj.open(mode='rb') as f:
+    filePathObj = Path(filePath)
+
+    with filePathObj.open(mode='rb') as f:
       torrentData = decode(f.read())
-  announceData = torrentData[b'announce']
-  infoData = torrentData[b'info']
-  
-  return announceData, infoData
+    announceData = torrentData[b'announce']
+    infoData = torrentData[b'info']
+    
+    return announceData, infoData
 
 def getInfoHash(data):
     encodedInfo = encode(data)
@@ -38,20 +39,22 @@ def getHandshakeData(filePath):
     peerId = b'-CC0101-' + os.urandom(12)
 
     infoHash = getInfoHash(info)
-    left = getSize(info)
+    totalLength = getSize(info)
     params = {
         'info_hash': infoHash,
         'peer_id': peerId,
         'port': 6881,
         'uploaded': 0,
         'downloaded': 0,
-        'left': left,
+        'left': totalLength,
         'compact': 1
     }
 
     response = requests.get(announceUrl, params=params)
     trackerResponse = decode(response.content)
     peers = parsePeers(trackerResponse[b'peers'])
+    pieceLength = info[b'piece length']
+    hashes = info[b'pieces']
 
-    return infoHash, peerId, peers
+    return infoHash, peerId, peers, totalLength, pieceLength, hashes
 
