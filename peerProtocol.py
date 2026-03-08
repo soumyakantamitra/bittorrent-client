@@ -27,7 +27,7 @@ def getMessage(sock):
     
     length = struct.unpack(">I", response)[0]
 
-    #Keep-Alive (if length = 0)
+    #Keep-Alive (if length == 0)
     if length == 0:
         return "keep-alive", None
     
@@ -41,12 +41,12 @@ def getMessage(sock):
 
     return messageId, payload
 
-def has_piece(bitfield, piece_index):
-    byte_idx = piece_index // 8
-    bit_offset = 7 - (piece_index % 8)
-    if byte_idx >= len(bitfield):
+def hasPiece(bitfield, pieceIndex):
+    byteIndex = pieceIndex // 8
+    bitOffset = 7 - (pieceIndex % 8)
+    if byteIndex >= len(bitfield):
         return False
-    return (bitfield[byte_idx] >> bit_offset) & 1
+    return (bitfield[byteIndex] >> bitOffset) & 1
 
 def handlePeer(sock):
     bitfield = None
@@ -57,24 +57,24 @@ def handlePeer(sock):
         
         if messageId == 5:
             bitfield = payload
-            print(f"  [+] Received Bitfield ({len(bitfield)} bytes).")
+            print(f"[+] Received Bitfield ({len(bitfield)} bytes).")
         elif messageId == 1:
             unchoked = True
         
-        print("  [>] Sending 'Interested'...")
+        print("[>] Sending 'Interested'...")
         sendMessage(sock, 2)
         
         while not unchoked:
             messageId, payload = getMessage(sock)
             
             if messageId == "closed":
-                print("  [!] Peer closed connection during negotiation.")
+                print("[!] Peer closed connection during negotiation.")
                 return None
             elif messageId == 1:
-                print("  [!] SUCCESS: Peer has Unchoked us!")
+                print("[!] SUCCESS: Peer has Unchoked us!")
                 unchoked = True
             elif messageId == 0:
-                print("  [!] Peer Choked us. Waiting...")
+                print("[!] Peer Choked us. Waiting...")
             elif messageId == "keep-alive":
                 continue
             else:
@@ -84,7 +84,7 @@ def handlePeer(sock):
         return bitfield
 
     except Exception as e:
-        print(f"  [!] Protocol error: {e}")
+        print(f"[!] Protocol error: {e}")
         return None
 
 def handshake(infoHash, peerId, peerIp, peerPort):
@@ -127,22 +127,3 @@ def handshake(infoHash, peerId, peerIp, peerPort):
     except (socket.timeout, ConnectionRefusedError, socket.error) as e:
         print(f"Failed to connect to {peerIp}: {e}")
         return None
-
-
-infoHash, peerId, peers = getHandshakeData(filePath)
-
-for i, (ip, port) in enumerate(peers):
-    print(f"Peer {i} is ip: {ip} port: {port}")
-    sock = handshake(infoHash, peerId, ip, port)
-    
-    if sock:
-        peer_bitfield = handlePeer(sock)
-            
-        if peer_bitfield: #Testing
-            if has_piece(peer_bitfield, 0):
-                print("Peer has Piece #0. Ready to request blocks!")
-            else:
-                print("[*] Peer does not have Piece #0.")
-            
-        print("[!] Closing connection.")
-        sock.close()
