@@ -7,5 +7,5 @@ __pycache__/
 *.pyc
 
 # Downloaded files
-.downloaded_file.iso
-downloaded_file.iso
+.downloads/
+downloads/
