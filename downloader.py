@@ -12,18 +12,23 @@ def requestBlock(sock, pieceIndex, begin, length):
     payload = struct.pack(">III", pieceIndex, begin, length)
     sendMessage(sock, 6, payload)
 
-# Downloads a single piece by requesting it in 16KB blocks.
+# Downloads pieces by requesting them in 16KB blocks.
 def downloadPiece(sock, pieceIndex, pieceSize):   
     pieceData = bytearray(pieceSize)
-    bytesDownloaded = 0
+    downloadedBytes = 0
+    requestedBytes = 0
+    MAX_REQUESTS = 10
 
     print(f"[*] Downloading Piece #{pieceIndex} ({pieceSize} bytes)...")
 
-    while bytesDownloaded < pieceSize:
-        # Calculate the size of the next block (the last block might be smaller)
-        currentBlockSize = min(BLOCK_SIZE, pieceSize - bytesDownloaded)
-        
-        requestBlock(sock, pieceIndex, bytesDownloaded, currentBlockSize)
+    while downloadedBytes < pieceSize:
+
+        while requestedBytes < pieceSize and (requestedBytes - downloadedBytes) < MAX_REQUESTS * BLOCK_SIZE:
+
+            currentBlockSize = min(BLOCK_SIZE, pieceSize - requestedBytes)
+            
+            requestBlock(sock, pieceIndex, requestedBytes, currentBlockSize)
+            requestedBytes += currentBlockSize
 
         messageId, payload = getMessage(sock)
 
@@ -32,10 +37,10 @@ def downloadPiece(sock, pieceIndex, pieceSize):
             blockData = payload[8:]
             
             pieceData[begin:begin + len(blockData)] = blockData
-            bytesDownloaded += len(blockData)
+            downloadedBytes += len(blockData)
             
             # Progress bar
-            percent = (bytesDownloaded / pieceSize) * 100
+            percent = (downloadedBytes / pieceSize) * 100
             print(f" [+] Progress: {percent:.1f}%", end='\r')
             
         elif messageId == "closed":
@@ -73,7 +78,7 @@ def isPieceAlreadyDownloaded(pieceIndex, pieceLength, totalLength, pieceHashes, 
         with open(filePath, "rb") as f:
             # Jump to the start of the piece
             f.seek(pieceIndex * pieceLength)
-            # Read only this piece's data
+
             data = f.read(currentPieceSize)
             
             if len(data) != currentPieceSize:
@@ -106,28 +111,27 @@ def runDownloader(infoHash, peerId, peers, totalLength, pieceLength, pieceHashes
             sock.close()
             continue
 
-        # Main download section
         try:
             with open(outputFile, "rb+") as f:
                 for pieceIndex in range(totalPieces):
 
                     if isPieceAlreadyDownloaded(pieceIndex, pieceLength, totalLength, pieceHashes, outputFile):
-                        print(f"[*] Piece #{pieceIndex} already valid on disk. Skipping...")
+                        print(f"[*] Piece #{pieceIndex} already valid on disk. Skipping...", end='\r')
                         continue
 
-                    # Skip pieces this peer doesn't have
+                    # Skip absent pieces
                     if not hasPiece(bitfield, pieceIndex):
                         continue
 
-                    # Determine piece size (handle the last piece)
                     currentPieceSize = pieceLength
                     if pieceIndex == totalPieces - 1:
+                        #in case of last piece
                         currentPieceSize = totalLength - (pieceIndex * pieceLength)
 
                     # Download and verify
                     data = downloadPiece(sock, pieceIndex, currentPieceSize)
                     if data and verifyPiece(data, pieceIndex, pieceHashes):
-                        # Seek to correct position and write
+
                         f.seek(pieceIndex * pieceLength)
                         f.write(data)
                         print(f"\n[SUCCESS] Piece #{pieceIndex} saved.")
