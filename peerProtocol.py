@@ -95,7 +95,7 @@ def handshake(infoHash, peerId, peerIp, peerPort):
     handshakeMsg = protocolStringLength + protocolString + reserved + infoHash + peerId
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(25)
+    sock.settimeout(10)
 
     try:
         print(f"Connecting to {peerIp}:{peerPort}...")
