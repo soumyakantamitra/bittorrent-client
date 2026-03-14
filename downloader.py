@@ -25,7 +25,7 @@ def downloadPiece(sock, pieceIndex, pieceSize):
     downloadedBytes = 0
     requestedBytes = 0
 
-    print(f"[*] Downloading Piece #{pieceIndex} ({pieceSize} bytes)...")
+    # print(f"[*] Downloading Piece #{pieceIndex} ({pieceSize} bytes)...")
 
     while downloadedBytes < pieceSize:
 
@@ -58,7 +58,7 @@ def downloadPiece(sock, pieceIndex, pieceSize):
             # Ignore other messages
             continue
 
-    print(f"\n  [!] Piece #{pieceIndex} download finished.")
+    # print(f"\n  [!] Piece #{pieceIndex} download finished.")
     return pieceData
 
 def verifyPiece(pieceData, pieceIndex, pieceHashes):
@@ -114,23 +114,35 @@ def pieceWorker(pieceQueue, infoHash, peerId, peers, totalLength, pieceLength, p
                 sock.close()
                 continue
 
-            while not pieceQueue.empty():
-                pieceIndex = pieceQueue.get()
+            while True:
+                targetPiece = None
+                tempStorage = []
 
-                if not hasPiece(bitfield, pieceIndex):
-                    pieceQueue.put(pieceIndex) # Return it, this peer doesn't have it
+                while not pieceQueue.empty():
+                    pieceIndex = pieceQueue.get()
+                    # look for a piece this peer has 
+                    if hasPiece(bitfield, pieceIndex):
+                        targetPiece = pieceIndex
+                        break
+                    else:
+                        tempStorage.append(pieceIndex)
+
+                for index in tempStorage:
+                    pieceQueue.put(index) # Return pieces the peer doesn't have
+
+                if targetPiece is None:
                     break
 
                 currentPieceSize = pieceLength
-                if pieceIndex == totalPieces - 1:
+                if targetPiece == totalPieces - 1:
                     #in case of last piece
-                    currentPieceSize = totalLength - (pieceIndex * pieceLength)
+                    currentPieceSize = totalLength - (targetPiece * pieceLength)
 
                 # Download and verify
-                data = downloadPiece(sock, pieceIndex, currentPieceSize)
-                if data and verifyPiece(data, pieceIndex, pieceHashes):
+                data = downloadPiece(sock, targetPiece, currentPieceSize)
+                if data and verifyPiece(data, targetPiece, pieceHashes):
                     with open(outputFile, "rb+") as f:
-                        f.seek(pieceIndex * pieceLength)
+                        f.seek(targetPiece * pieceLength)
                         f.write(data)
                     
                     with counter_lock:
@@ -140,7 +152,7 @@ def pieceWorker(pieceQueue, infoHash, peerId, peers, totalLength, pieceLength, p
                     
                     pieceQueue.task_done()
                 else:
-                    pieceQueue.put(pieceIndex) # Failed download, return it
+                    pieceQueue.put(targetPiece) # Failed download, return it
                     break
             sock.close()
 
