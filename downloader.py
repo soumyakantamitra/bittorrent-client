@@ -91,6 +91,47 @@ def isPieceAlreadyDownloaded(pieceIndex, pieceLength, totalLength, pieceHashes, 
     except Exception:
         return False
 
+def progressMonitor(totalPieces, pieceLength):
+    global completed_pieces
+    lastCount = completed_pieces
+    startTime = time.time()
+
+    while True:
+        time.sleep(1)
+        
+        with counter_lock:
+            currentCount = completed_pieces
+        
+        # Speed
+        piecesInLastSecond = currentCount - lastCount
+        speed = (piecesInLastSecond * pieceLength) / (1024 * 1024)
+        
+        
+        elapsedTime = time.time() - startTime
+        downloadedMbs = (currentCount * pieceLength) / (1024 * 1024)
+        avgSpeed = downloadedMbs / elapsedTime if elapsedTime > 0 else 0
+        
+        progress = (currentCount / totalPieces) * 100
+        remainingPieces = totalPieces - currentCount
+        
+        # ETA
+        if avgSpeed > 0:
+            remainingSeconds = (remainingPieces * pieceLength) / (avgSpeed * 1024 * 1024)
+            eta = time.strftime("%H:%M:%S", time.gmtime(remainingSeconds))
+        else:
+            eta = "Calculating..."
+
+        
+        print(f"\r[*] {progress:.2f}% | {currentCount}/{totalPieces} pcs | {speed:.2f} MB/s | ETA: {eta}    ", end='', flush=True)
+        
+        lastCount = currentCount
+        
+        if currentCount >= totalPieces:
+            print(f"\n\n--- Download Summary ---")
+            print(f"Total Time: {time.strftime('%M:%S', time.gmtime(elapsedTime))}")
+            print(f"Average Speed: {avgSpeed:.2f} MB/s")
+            break
+
 def pieceWorker(pieceQueue, infoHash, peerId, peers, totalLength, pieceLength, pieceHashes, outputFile):
     global completed_pieces
     totalPieces = (totalLength + pieceLength - 1) // pieceLength
@@ -211,6 +252,10 @@ def runDownloader(infoHash, peerId, peers, totalLength, pieceLength, pieceHashes
         t.daemon = True
         t.start()
         time.sleep(0.2)
+
+    monitor = threading.Thread(target=progressMonitor, args=(totalPieces, pieceLength))
+    monitor.daemon = True
+    monitor.start()
 
     # To stop the script with Keyboard Interrupt
     try:
