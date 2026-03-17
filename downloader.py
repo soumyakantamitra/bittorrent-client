@@ -1,8 +1,10 @@
+import random
 import struct
 import hashlib
 import os
 import threading
-from queue import Queue
+import time
+from queue import Empty, Queue
 from peerProtocol import handshake, handlePeer, sendMessage, getMessage, hasPiece
 from trackers import getHandshakeData
 
@@ -45,10 +47,6 @@ def downloadPiece(sock, pieceIndex, pieceSize):
             pieceData[begin:begin + len(blockData)] = blockData
             downloadedBytes += len(blockData)
             
-            # Progress bar
-            # percent = (downloadedBytes / pieceSize) * 100
-            # print(f" [+] Progress: {percent:.1f}%", end='\r')
-            
         elif messageId == "closed":
             print("\n  [!] Connection lost.")
             return None
@@ -58,7 +56,6 @@ def downloadPiece(sock, pieceIndex, pieceSize):
             # Ignore other messages
             continue
 
-    # print(f"\n  [!] Piece #{pieceIndex} download finished.")
     return pieceData
 
 def verifyPiece(pieceData, pieceIndex, pieceHashes):
@@ -97,68 +94,91 @@ def isPieceAlreadyDownloaded(pieceIndex, pieceLength, totalLength, pieceHashes, 
 def pieceWorker(pieceQueue, infoHash, peerId, peers, totalLength, pieceLength, pieceHashes, outputFile):
     global completed_pieces
     totalPieces = (totalLength + pieceLength - 1) // pieceLength
-
-    # Find a Peer
-    for ip, port in peers:
-        try:
-            sock = handshake(infoHash, peerId, ip, port)
-
-            if not sock:
+ 
+    while True:
+        with counter_lock:
+            if completed_pieces >= totalPieces:
+                return
+ 
+        for ip, port in peers:
+            with counter_lock:
+                if completed_pieces >= totalPieces:
+                    return
+                
+            try:
+                pieceIndex = pieceQueue.get(timeout=3)
+            except Empty:
+                with counter_lock:
+                    if completed_pieces >= totalPieces:
+                        return
                 continue
 
-            sock.settimeout(10.0)
-            bitfield = handlePeer(sock)
-
-            # Skip absent pieces
-            if not bitfield:
-                sock.close()
+            currentPieceSize = pieceLength
+            if pieceIndex == totalPieces - 1:
+                currentPieceSize = totalLength - (pieceIndex * pieceLength)
+ 
+            if isPieceAlreadyDownloaded(pieceIndex, pieceLength, totalLength, pieceHashes, outputFile):
+                with counter_lock:
+                    completed_pieces += 1
+                pieceQueue.task_done()
                 continue
+ 
+            try:
+                sock = handshake(infoHash, peerId, ip, port)
+                if not sock:
+                    pieceQueue.put(pieceIndex)
+                    continue
 
-            while True:
-                targetPiece = None
-                tempStorage = []
+                sock.settimeout(5.0)
+                bitfield = handlePeer(sock)
 
-                while not pieceQueue.empty():
-                    pieceIndex = pieceQueue.get()
-                    # look for a piece this peer has 
-                    if hasPiece(bitfield, pieceIndex):
-                        targetPiece = pieceIndex
-                        break
+                if not bitfield:
+                    sock.close()
+                    pieceQueue.put(pieceIndex)
+                    continue
+
+                currentPiece = pieceIndex
+                while True:
+                    if not hasPiece(bitfield, currentPiece):
+                        pieceQueue.put(currentPiece)
+                        try:
+                            currentPiece = pieceQueue.get(timeout=3)
+                        except Empty:
+                            break
+                        continue
+
+                    currentPieceSize = pieceLength
+                    if currentPiece == totalPieces - 1:
+                        currentPieceSize = totalLength - (currentPiece * pieceLength)
+
+                    data = downloadPiece(sock, currentPiece, currentPieceSize)
+
+                    if data and verifyPiece(data, currentPiece, pieceHashes):
+                        with open(outputFile, "rb+") as f:
+                            f.seek(currentPiece * pieceLength)
+                            f.write(data)
+                        with counter_lock:
+                            completed_pieces += 1
+                        pieceQueue.task_done()
+
+                        try:
+                            currentPiece = pieceQueue.get(timeout=3)
+                        except Empty:
+                            break
                     else:
-                        tempStorage.append(pieceIndex)
+                        # Download failed, return piece
+                        pieceQueue.put(currentPiece)
+                        break
 
-                for index in tempStorage:
-                    pieceQueue.put(index) # Return pieces the peer doesn't have
+                sock.close()
 
-                if targetPiece is None:
-                    break
-
-                currentPieceSize = pieceLength
-                if targetPiece == totalPieces - 1:
-                    #in case of last piece
-                    currentPieceSize = totalLength - (targetPiece * pieceLength)
-
-                # Download and verify
-                data = downloadPiece(sock, targetPiece, currentPieceSize)
-                if data and verifyPiece(data, targetPiece, pieceHashes):
-                    with open(outputFile, "rb+") as f:
-                        f.seek(targetPiece * pieceLength)
-                        f.write(data)
-                    
-                    with counter_lock:
-                        completed_pieces += 1
-                        progress = (completed_pieces / totalPieces) * 100
-                        print(f"\r[*] PROGRESS: {progress:.2f}% | Pieces: {completed_pieces}/{totalPieces}   ", end='', flush=True)
-                    
-                    pieceQueue.task_done()
-                else:
-                    pieceQueue.put(targetPiece) # Failed download, return it
-                    break
-            sock.close()
-
-        except Exception:
-            continue
-
+            except Exception:
+                pieceQueue.put(pieceIndex)
+                continue
+ 
+        else:
+            # Wait before retrying.
+            time.sleep(5)
 
 def runDownloader(infoHash, peerId, peers, totalLength, pieceLength, pieceHashes):
     global completed_pieces
@@ -185,15 +205,30 @@ def runDownloader(infoHash, peerId, peers, totalLength, pieceLength, pieceHashes
     print(f"[*] Starting {NUM_THREADS} threads. Already have {completed_pieces} pieces.")
     
     for _ in range(NUM_THREADS):
-        t = threading.Thread(target=pieceWorker, args=(pieceQueue, infoHash, peerId, peers, totalLength, pieceLength, pieceHashes, outputFile))
+        shuffledPeerList = list(peers)
+        random.shuffle(shuffledPeerList)
+        t = threading.Thread(target=pieceWorker, args=(pieceQueue, infoHash, peerId, shuffledPeerList, totalLength, pieceLength, pieceHashes, outputFile))
         t.daemon = True
         t.start()
+        time.sleep(0.2)
 
-    pieceQueue.join()
+    # To stop the script with Keyboard Interrupt
+    try:
+        while True:
+            # Check if everything is finished
+            if completed_pieces >= totalPieces:
+                break
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("\n[!] User interrupted the download. Progress saved.")
+        return
+
+    # pieceQueue.join()
     print("[!] All downloads finished.")
 
 
 if __name__ == "__main__":
+    #location of torrent file
     filePath = r"C:\Users\Lenovo\Downloads\Fedora-Budgie-Live-x86_64-43.torrent"
     infoHash, peerId, peers, totalLen, pieceLen, hashes = getHandshakeData(filePath)
     
