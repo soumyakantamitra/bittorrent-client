@@ -27,8 +27,6 @@ def downloadPiece(sock, pieceIndex, pieceSize):
     downloadedBytes = 0
     requestedBytes = 0
 
-    # print(f"[*] Downloading Piece #{pieceIndex} ({pieceSize} bytes)...")
-
     while downloadedBytes < pieceSize:
 
         while requestedBytes < pieceSize and (requestedBytes - downloadedBytes) < MAX_REQUESTS * BLOCK_SIZE:
@@ -53,7 +51,6 @@ def downloadPiece(sock, pieceIndex, pieceSize):
         elif messageId == "keep-alive":
             continue
         else:
-            # Ignore other messages
             continue
 
     return pieceData
@@ -66,6 +63,36 @@ def verifyPiece(pieceData, pieceIndex, pieceHashes):
     
     actualHash = hashlib.sha1(pieceData).digest()
     return actualHash == expectedHash
+
+def verifyDownload(outputFile, totalLength, pieceLength, pieceHashes):
+    totalPieces = (totalLength + pieceLength - 1) // pieceLength
+    failedPieces = []
+
+    print(f"[*] Verifying {totalPieces} pieces...")
+
+    for pieceIndex in range(totalPieces):
+        currentPieceSize = pieceLength
+        if pieceIndex == totalPieces - 1:
+            currentPieceSize = totalLength - (pieceIndex * pieceLength)
+
+        with open(outputFile, "rb") as f:
+            f.seek(pieceIndex * pieceLength)
+            data = f.read(currentPieceSize)
+
+        if not verifyPiece(data, pieceIndex, pieceHashes):
+            failedPieces.append(pieceIndex)
+
+        # Progress
+        progress = ((pieceIndex + 1) / totalPieces) * 100
+        print(f"\r[*] Verifying... {progress:.1f}%", end='', flush=True)
+
+    print()
+    if not failedPieces:
+        print("[+] Verification passed! All pieces are correct.")
+    else:
+        print(f"[!] Verification FAILED! {len(failedPieces)} corrupt pieces: {failedPieces}")
+
+    return failedPieces
 
 def isPieceAlreadyDownloaded(pieceIndex, pieceLength, totalLength, pieceHashes, filePath):
     if not os.path.exists(filePath):
@@ -131,6 +158,56 @@ def progressMonitor(totalPieces, pieceLength):
             print(f"Total Time: {time.strftime('%M:%S', time.gmtime(elapsedTime))}")
             print(f"Average Speed: {avgSpeed:.2f} MB/s")
             break
+
+def reDownloadCorruptPieces(failedPieces, infoHash, peerId, peers, totalLength, pieceLength, pieceHashes, outputFile):
+    global completed_pieces
+    totalPieces = (totalLength + pieceLength - 1) // pieceLength
+
+    print(f"[!] Re-downloading {len(failedPieces)} corrupt pieces...")
+
+    for ip, port in peers:
+        if not failedPieces:
+            break
+        try:
+            sock = handshake(infoHash, peerId, ip, port)
+            if not sock:
+                continue
+
+            sock.settimeout(5.0)
+            bitfield = handlePeer(sock)
+            if not bitfield:
+                sock.close()
+                continue
+
+            stillFailed = []
+            for pieceIndex in failedPieces:
+                if not hasPiece(bitfield, pieceIndex):
+                    stillFailed.append(pieceIndex)
+                    continue
+
+                currentPieceSize = pieceLength
+                if pieceIndex == totalPieces - 1:
+                    currentPieceSize = totalLength - (pieceIndex * pieceLength)
+
+                data = downloadPiece(sock, pieceIndex, currentPieceSize)
+                if data and verifyPiece(data, pieceIndex, pieceHashes):
+                    with open(outputFile, "rb+") as f:
+                        f.seek(pieceIndex * pieceLength)
+                        f.write(data)
+                    print(f"[+] Re-downloaded piece {pieceIndex} successfully.")
+                else:
+                    stillFailed.append(pieceIndex)
+
+            failedPieces = stillFailed
+            sock.close()
+
+        except Exception:
+            continue
+
+    if failedPieces:
+        print(f"[!] Still corrupt after re-download: {failedPieces}")
+    else:
+        print("[+] All corrupt pieces fixed!")
 
 def pieceWorker(pieceQueue, infoHash, peerId, peers, totalLength, pieceLength, pieceHashes, outputFile):
     global completed_pieces
@@ -218,7 +295,6 @@ def pieceWorker(pieceQueue, infoHash, peerId, peers, totalLength, pieceLength, p
                 continue
  
         else:
-            # Wait before retrying.
             time.sleep(5)
 
 def runDownloader(infoHash, peerId, peers, totalLength, pieceLength, pieceHashes):
@@ -260,16 +336,23 @@ def runDownloader(infoHash, peerId, peers, totalLength, pieceLength, pieceHashes
     # To stop the script with Keyboard Interrupt
     try:
         while True:
-            # Check if everything is finished
             if completed_pieces >= totalPieces:
                 break
             time.sleep(0.5)
     except KeyboardInterrupt:
         print("\n[!] User interrupted the download. Progress saved.")
         return
+    
+    monitor.join()
 
-    # pieceQueue.join()
     print("[!] All downloads finished.")
+
+    failedPieces = verifyDownload(outputFile, totalLength, pieceLength, pieceHashes)
+    
+    # Redownload any corrupt pieces
+    if failedPieces:
+        reDownloadCorruptPieces(failedPieces, infoHash, peerId, peers, totalLength, pieceLength, pieceHashes, outputFile)
+        verifyDownload(outputFile, totalLength, pieceLength, pieceHashes)
 
 
 if __name__ == "__main__":
