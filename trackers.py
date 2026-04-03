@@ -9,13 +9,9 @@ import os
 
 def extractTorrentData(filePath):
     filePathObj = Path(filePath)
-
     with filePathObj.open(mode='rb') as f:
-      torrentData = decode(f.read())
-    announceData = torrentData[b'announce']
-    infoData = torrentData[b'info']
-    
-    return announceData, infoData
+      torrentData = decode(f.read()) 
+    return torrentData
 
 def getInfoHash(data):
     encodedInfo = encode(data)
@@ -26,6 +22,12 @@ def getSize(info):
         return info[b'length']
     else:                  #in case of multiple files
         return sum(file[b'length'] for file in info[b'files'])
+
+def getFiles(info):
+    if b'length' in info:
+        return None
+    else:
+        return info[b'files']
 
 def parsePeers(peerBytes):
     peers = []
@@ -102,11 +104,14 @@ def getUdpTrackerPeers(url, infoHash, peerId, totalLength):
         sock.close()
 
 def getHandshakeData(filePath):
-    announceUrl, info = extractTorrentData(filePath)
+    torrentData = extractTorrentData(filePath)
+    announceUrl = torrentData[b'announce']
+    info = torrentData[b'info']
     peerId = b'-CC0101-' + os.urandom(12)
 
     infoHash = getInfoHash(info)
     totalLength = getSize(info)
+    files = getFiles(info)
 
     urlString = announceUrl.decode()
     try:
@@ -125,5 +130,5 @@ def getHandshakeData(filePath):
     pieceLength = info[b'piece length']
     hashes = info[b'pieces']
 
-    return infoHash, peerId, peers, totalLength, pieceLength, hashes
+    return infoHash, peerId, peers, totalLength, files, pieceLength, hashes
 
