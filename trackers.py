@@ -105,7 +105,6 @@ def getUdpTrackerPeers(url, infoHash, peerId, totalLength):
 
 def getHandshakeData(filePath):
     torrentData = extractTorrentData(filePath)
-    announceUrl = torrentData[b'announce']
     info = torrentData[b'info']
     peerId = b'-CC0101-' + os.urandom(12)
 
@@ -113,22 +112,37 @@ def getHandshakeData(filePath):
     totalLength = getSize(info)
     files = getFiles(info)
 
-    urlString = announceUrl.decode()
-    try:
-        if urlString.startswith("http"):
-            peers = getHttpTrackerPeers(urlString, infoHash, peerId, totalLength)
-        elif urlString.startswith("udp"):
-            peers = getUdpTrackerPeers(urlString, infoHash, peerId, totalLength)
-        else:
-            print(f"[!] Unsupported tracker protocol, skipping: {urlString}")
-    except Exception as e:
-        print(f"[!] Tracker failed ({urlString}): {e}")
+    announceUrls = []
+    if b'announce' in torrentData:
+        announceUrls.append(torrentData[b'announce'].decode())
+    if b'announce-list' in torrentData:
+        for tier in torrentData[b'announce-list']:
+            for url in tier:
+                if isinstance(url, bytes):
+                    url = url.decode()  
+                if url not in announceUrls:
+                    announceUrls.append(url)
 
-    if not peers:
+    uniquePeers = set()
+    for url in announceUrls:
+        print(f"[*] Trying tracker: {url}")
+        try:
+            if url.startswith("http"):
+                peers = getHttpTrackerPeers(url, infoHash, peerId, totalLength)
+            elif url.startswith("udp"):
+                peers = getUdpTrackerPeers(url, infoHash, peerId, totalLength)
+            else:
+                print(f"[!] Unsupported tracker protocol, skipping: {url}")
+            uniquePeers.update(peers)
+
+        except Exception as e:
+            print(f"[!] Tracker failed ({url}): {e}")
+
+    if not uniquePeers:
         raise Exception("[!] Could not get peers from any tracker")
 
     pieceLength = info[b'piece length']
     hashes = info[b'pieces']
 
-    return infoHash, peerId, peers, totalLength, files, pieceLength, hashes
+    return infoHash, peerId, list(uniquePeers), totalLength, files, pieceLength, hashes
 
