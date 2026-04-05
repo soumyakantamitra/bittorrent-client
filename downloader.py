@@ -159,6 +159,34 @@ def progressMonitor(totalPieces, pieceLength):
             print(f"Average Speed: {avgSpeed:.2f} MB/s")
             break
 
+def reconstructFiles(outputFile, files, baseDir="downloads"):
+    # Single file torrent — nothing to reconstruct
+    if files is None:
+        return
+
+    print("[*] Reconstructing file structure...")
+    offset = 0
+
+    for fileInfo in files:
+        fileLength = fileInfo[b'length']
+        filePath = os.path.join(baseDir, *[p.decode() for p in fileInfo[b'path']])
+
+        os.makedirs(os.path.dirname(filePath), exist_ok=True)
+
+        print(f"[+] Writing {filePath} ({fileLength} bytes)...")
+        with open(outputFile, "rb") as src:
+            src.seek(offset)
+            with open(filePath, "wb") as dst:
+                remaining = fileLength
+                while remaining > 0:
+                    chunk = src.read(min(1024 * 1024, remaining))  # 1MB at a time
+                    dst.write(chunk)
+                    remaining -= len(chunk)
+
+        offset += fileLength
+
+    print("[+] File reconstruction complete.")
+
 def reDownloadCorruptPieces(failedPieces, infoHash, peerId, peers, totalLength, pieceLength, pieceHashes, outputFile):
     global completed_pieces
     totalPieces = (totalLength + pieceLength - 1) // pieceLength
@@ -297,7 +325,7 @@ def pieceWorker(pieceQueue, infoHash, peerId, peers, totalLength, pieceLength, p
         else:
             time.sleep(5)
 
-def runDownloader(infoHash, peerId, peers, totalLength, pieceLength, pieceHashes):
+def runDownloader(infoHash, peerId, peers, totalLength, files, pieceLength, pieceHashes):
     global completed_pieces
 
     outputFile = r"downloads\downloaded_file.iso"
@@ -353,11 +381,12 @@ def runDownloader(infoHash, peerId, peers, totalLength, pieceLength, pieceHashes
     if failedPieces:
         reDownloadCorruptPieces(failedPieces, infoHash, peerId, peers, totalLength, pieceLength, pieceHashes, outputFile)
         verifyDownload(outputFile, totalLength, pieceLength, pieceHashes)
-
+    
+    reconstructFiles(outputFile, files)
 
 if __name__ == "__main__":
     #location of torrent file
     filePath = r"C:\Users\Lenovo\Downloads\Fedora-Budgie-Live-x86_64-43.torrent"
-    infoHash, peerId, peers, totalLen, pieceLen, hashes = getHandshakeData(filePath)
+    infoHash, peerId, peers, totalLen, files, pieceLen, hashes = getHandshakeData(filePath)
     
-    runDownloader(infoHash, peerId, peers, totalLen, pieceLen, hashes)
+    runDownloader(infoHash, peerId, peers, totalLen, files, pieceLen, hashes)
