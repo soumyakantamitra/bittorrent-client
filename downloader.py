@@ -159,6 +159,21 @@ def progressMonitor(totalPieces, pieceLength):
             print(f"Average Speed: {avgSpeed:.2f} MB/s")
             break
 
+def isAlreadyReconstructed(files, baseDir="downloads"):
+    if files is None:
+        return False  # single file is not applicable
+
+    for fileInfo in files:
+        filePath = os.path.join(baseDir, *[p.decode() for p in fileInfo[b'path']])
+        expectedSize = fileInfo[b'length']
+
+        if not os.path.exists(filePath):
+            return False
+        if os.path.getsize(filePath) != expectedSize:
+            return False
+
+    return True
+
 def reconstructFiles(outputFile, files, baseDir="downloads"):
     # Single file torrent — nothing to reconstruct
     if files is None:
@@ -331,6 +346,11 @@ def runDownloader(infoHash, peerId, peers, totalLength, files, pieceLength, piec
     global completed_pieces
 
     outputFile = r"downloads\downloaded_file.iso"
+
+    if isAlreadyReconstructed(files):
+        print("[*] Torrent already downloaded.")
+        return
+
     totalPieces = (totalLength + pieceLength - 1) // pieceLength
     print(f"[*] Total pieces to download: {totalPieces}")
 
