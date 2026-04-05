@@ -184,6 +184,8 @@ def reconstructFiles(outputFile, files, baseDir="downloads"):
                     remaining -= len(chunk)
 
         offset += fileLength
+    
+    os.remove(outputFile)
 
     print("[+] File reconstruction complete.")
 
