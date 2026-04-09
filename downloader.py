@@ -408,7 +408,7 @@ def runDownloader(infoHash, peerId, peers, totalLength, files, pieceLength, piec
 
 if __name__ == "__main__":
     #location of torrent file
-    filePath = r"C:\Users\Lenovo\Downloads\Fedora-Budgie-Live-x86_64-43.torrent"
+    filePath = r"C:\path\to\your\file.torrent"
     infoHash, peerId, peers, totalLen, files, pieceLen, hashes = getHandshakeData(filePath)
     
     runDownloader(infoHash, peerId, peers, totalLen, files, pieceLen, hashes)
