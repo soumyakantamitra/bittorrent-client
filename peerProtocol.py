@@ -1,8 +1,5 @@
 import socket
 import struct
-from trackers import getHandshakeData
-
-filePath = r"C:\Users\Lenovo\Downloads\Fedora-Budgie-Live-x86_64-43.torrent"
 
 def receive(sock, length):
     data = b''
