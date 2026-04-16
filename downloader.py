@@ -6,7 +6,6 @@ import threading
 import time
 from queue import Empty, Queue
 from peerProtocol import handshake, handlePeer, sendMessage, getMessage, hasPiece
-from trackers import getHandshakeData
 
 BLOCK_SIZE = 16384  # 16KB is the standard for BitTorrent blocks
 MAX_REQUESTS = 20
@@ -405,10 +404,3 @@ def runDownloader(infoHash, peerId, peers, totalLength, files, pieceLength, piec
         verifyDownload(outputFile, totalLength, pieceLength, pieceHashes)
     
     reconstructFiles(outputFile, files)
-
-if __name__ == "__main__":
-    #location of torrent file
-    filePath = r"C:\path\to\your\file.torrent"
-    infoHash, peerId, peers, totalLen, files, pieceLen, hashes = getHandshakeData(filePath)
-    
-    runDownloader(infoHash, peerId, peers, totalLen, files, pieceLen, hashes)
